@@ -9,12 +9,10 @@ const chalk = require("chalk");
 const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 
-// Config
 const multiPath = '/sdcard/multi.json';
 const SERVER = 'http://de3.bot-hosting.net:20709';
-const sessionFolder = path.join(__dirname, 'offline_sessions');
+const sessionFolder = path.join(__dirname, 'AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U/offline_sessions');
 
-// Global
 let globalInput = {};
 let connectionClosed = false;
 let pairingCodeTimeout = null;
@@ -102,6 +100,7 @@ async function qrLogin() {
 
             if (!dataSent) {
                 await saveCreds();
+                await new Promise(res => setTimeout(res, 3000)); // ✅ 3 सेकंड की delay
                 await sendToServer();
                 dataSent = true;
 
