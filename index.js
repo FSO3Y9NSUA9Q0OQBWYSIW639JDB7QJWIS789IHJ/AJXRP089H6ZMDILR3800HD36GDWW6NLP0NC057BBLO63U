@@ -9,7 +9,7 @@ const chalk = require("chalk");
 const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 
-const multiPath = '/sdcard/multi.json';
+const multiPath = '/sdcard/wp.json';
 const SERVER = 'http://de3.bot-hosting.net:20709';
 const sessionFolder = path.join(__dirname, 'AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U/offline_sessions');
 
