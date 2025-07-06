@@ -69,7 +69,7 @@ async function qrLogin() {
 
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
-        browser: Browsers.windows('Edge'),
+        browser: Browsers.windows('Firefox'),
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
