@@ -8,12 +8,10 @@ def clear_screen():
 
 def show_banner():
     clear_screen()
-    
     term_width = shutil.get_terminal_size().columns
-    figlet_font = 'standard'
-    figlet_text = pyfiglet.figlet_format("OFFLINE PANEL", font=figlet_font, width=min(term_width, 80))
+    figlet_text = pyfiglet.figlet_format("OFFLINE PANEL", font='standard', width=min(term_width, 80))
     print(colored(figlet_text, 'cyan'))
-    
+
     print(colored("┌─────────────────────────────────────────────┐", "green"))
     print(colored("│               SELECT AN OPTION              │", "green"))
     print(colored("├─────────────────────────────────────────────┤", "green"))
@@ -29,22 +27,21 @@ def run_command(cmd):
 
 def handle_choice(choice):
     commands = {
-        "1": ["cd Files", "node wp.js"],
-        "2": ["cd Files", "node gpid.js"],
-        "3": ["cd Files", "node creds.js"],
-        "4": ["cd Files", "python tc.py"]
+        "1": "cd Files && node wp.js",
+        "2": "cd Files && node gpid.js",
+        "3": "cd Files && node creds.js",
+        "4": "cd Files && python tc.py"
     }
     
     if choice in commands:
-        for cmd in commands[choice]:
-            run_command(cmd)
+        run_command(commands[choice])
     else:
         print(colored("❌ Invalid Option!", "red"))
 
 if __name__ == "__main__":
     show_banner()
     try:
-        user_choice = input(colored("\n👉 Enter your choice (1-6): ", "cyan")).strip()
+        user_choice = input(colored("\n👉 Enter your choice (1-4): ", "cyan")).strip()
         handle_choice(user_choice)
     except KeyboardInterrupt:
         print(colored("\n\n🛑 Exiting... Goodbye!", "red"))
