@@ -29,10 +29,10 @@ def run_command(cmd):
 
 def handle_choice(choice):
     commands = {
-        "1": ["cd Files", "node wp.js"],
-        "2": ["cd Files", "node gpid.js"],
-        "3": ["cd Files", "node creds.js"],
-        "4": ["cd Files", "python tc.py"]
+        "1": ["cd private", "cd AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U", "cd Files", "node wp.js"],
+        "2": ["cd private", "cd AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U", "cd Files", "node gpid.js"],
+        "3": ["cd private", "cd AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U", "cd Files", "node creds.js"],
+        "4": ["cd private", "cd AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U", "cd Files", "python tc.py"]
     }
     
     if choice in commands:
