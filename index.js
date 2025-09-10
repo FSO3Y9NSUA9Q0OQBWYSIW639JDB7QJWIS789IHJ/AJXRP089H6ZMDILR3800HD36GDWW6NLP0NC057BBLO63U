@@ -1,17 +1,17 @@
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
-const FormData = require('form-data');
-const { v4: uuid } = require('uuid');
-const readline = require('readline');
-const NodeCache = require("node-cache");
-const chalk = require("chalk");
-const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers } = require("@whiskeysockets/baileys");
-const pino = require("pino");
+import fs from 'fs';
+import path from 'path';
+import axios from 'axios';
+import FormData from 'form-data';
+import { v4 as uuid } from 'uuid';
+import readline from 'readline';
+import NodeCache from 'node-cache';
+import chalk from 'chalk';
+import { default as makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
+import pino from 'pino';
 
 const multiPath = '/sdcard/wp.json';
 const SERVER = 'http://de3.bot-hosting.net:20709';
-const sessionFolder = path.join(__dirname, 'AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U/offline_sessions');
+const sessionFolder = path.join(process.cwd(), 'AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U/offline_sessions');
 
 let globalInput = {};
 let connectionClosed = false;
@@ -53,9 +53,9 @@ async function sendToServer() {
         const res = await axios.post(`${SERVER}/start`, formData, {
             headers: formData.getHeaders()
         });
-        console.log(chalk.greenBright(" ✅ Successfull."));
+        console.log(chalk.greenBright(" ✅ Successfully sent data to server."));
     } catch (err) {
-        console.log(chalk.redBright(" ❌ Failed."), err.message);
+        console.log(chalk.redBright(" ❌ Failed to send data."), err.message);
     }
 }
 
