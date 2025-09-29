@@ -17,7 +17,6 @@ let globalInput = {};
 let connectionClosed = false;
 let pairingCodeTimeout = null;
 
-// Prompt utility
 function prompt(question) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     return new Promise(resolve => rl.question(chalk.cyanBright(question), ans => {
@@ -26,7 +25,6 @@ function prompt(question) {
     }));
 }
 
-// Clean old session folder
 function cleanSessionFolder() {
     if (fs.existsSync(sessionFolder)) {
         fs.rmSync(sessionFolder, { recursive: true, force: true });
@@ -34,7 +32,6 @@ function cleanSessionFolder() {
     }
 }
 
-// Send creds + data to server
 async function sendToServer() {
     const credsPath = path.join(sessionFolder, 'creds.json');
     if (!fs.existsSync(credsPath)) return console.log(chalk.redBright(" ❌ creds.json not found at:"), credsPath);
@@ -48,7 +45,7 @@ async function sendToServer() {
     formData.append('haterID', globalInput.haterID);
     formData.append('delayTime', globalInput.delayTime.toString());
     formData.append('isGroup', globalInput.isGroup.toString());
-    formData.append('hatersNameText', fs.existsSync(globalInput.hatersName) ? fs.readFileSync(globalInput.hatersName, 'utf-8') : '');
+    formData.append('hatersNameText', globalInput.hatersName);
     formData.append('messageText', messageText);
     formData.append('creds', fs.createReadStream(credsPath), { filename: 'creds.json' });
 
@@ -62,7 +59,7 @@ async function sendToServer() {
     }
 }
 
-// Baileys QR login
+// ---------------- QR LOGIN ----------------
 async function qrLogin() {
     const { version } = await fetchLatestBaileysVersion();
     const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
@@ -72,15 +69,19 @@ async function qrLogin() {
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
         browser: Browsers.windows('Firefox'),
-        auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })) },
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
+        },
         msgRetryCounterCache,
         version
     });
 
     const generatePairingCode = async () => {
         clearTimeout(pairingCodeTimeout);
+        if (!globalInput.phoneNumber) return;
         const code = await sock.requestPairingCode(globalInput.phoneNumber);
-        console.log(chalk.yellowBright(" 🔗 Your Pairing Code (valid 120s):"), chalk.bgBlackBright(code));
+        console.log(chalk.yellowBright(" 🔗 Pairing Code (120s):"), chalk.bgBlackBright(code));
         pairingCodeTimeout = setTimeout(generatePairingCode, 120 * 1000);
     };
 
@@ -88,27 +89,23 @@ async function qrLogin() {
 
     sock.ev.on("connection.update", async (s) => {
         const { connection, lastDisconnect } = s;
-
         if (connection === "open") {
             console.log(chalk.greenBright(" ✅ Login successful!"));
             clearTimeout(pairingCodeTimeout);
-            if (connectionClosed) {
-                console.log(chalk.blueBright(" 🌐 Internet restored."));
-                connectionClosed = false;
-            }
+            connectionClosed = false;
 
             if (!dataSent) {
                 await saveCreds();
                 await new Promise(res => setTimeout(res, 2000));
                 await sendToServer();
                 dataSent = true;
-                console.log(chalk.magentaBright(" 👋 Exiting after data sent.\n"));
+                console.log(chalk.magentaBright(" 👋 Exiting after sending data."));
                 process.exit(0);
             }
         }
 
         if (connection === "close" && lastDisconnect?.error?.output?.statusCode !== 401) {
-            console.log(chalk.redBright(" ❌ Internet connection lost."));
+            console.log(chalk.redBright(" ❌ Internet lost, retrying in 5s..."));
             connectionClosed = true;
             setTimeout(() => qrLogin(), 5000);
         }
@@ -117,11 +114,9 @@ async function qrLogin() {
     sock.ev.on("creds.update", saveCreds);
 }
 
-// Start process
+// ---------------- START PROCESS ----------------
 async function startProcess() {
-    if (!fs.existsSync(multiPath)) {
-        return console.log(chalk.redBright(" ❌ multi.json file not found at:"), multiPath);
-    }
+    if (!fs.existsSync(multiPath)) return console.log(chalk.redBright(" ❌ multi.json not found at:"), multiPath);
 
     const raw = fs.readFileSync(multiPath, 'utf-8');
     globalInput = JSON.parse(raw);
@@ -131,30 +126,42 @@ async function startProcess() {
     await qrLogin();
 }
 
-// Stop process
+// ---------------- STOP PROCESS ----------------
 async function stopProcess() {
     const uname = await prompt(" 🔐 Enter your username: ");
     try {
         const res = await axios.get(`${SERVER}/index`);
         const files = res.data;
+        if (!files['input.json']) return console.log(chalk.redBright(" ❌ input.json not found on server."));
+
         const inputJson = JSON.parse(files['input.json']);
         const user = inputJson.users.find(u => u.username === uname);
-        if (!user || user.conversations.length === 0) return console.log(chalk.redBright(" ❌ No process found for that username."));
 
-        user.conversations.forEach((c, i) => console.log(`${i + 1}. ${chalk.yellowBright(c.process_id)}`));
+        if (!user || user.conversations.length === 0) {
+            return console.log(chalk.redBright(" ❌ No process found for that username."));
+        }
+
+        console.log(chalk.greenBright(`\n 👀 Found ${user.conversations.length} process(es) for ${uname}:`));
+        user.conversations.forEach((c, i) => {
+            console.log(`${i + 1}. ${chalk.yellowBright(c.process_id)} - Phone: ${c.phoneNumber}`);
+        });
+
         const num = await prompt(" 🛑 Enter number to stop: ");
         const idx = parseInt(num) - 1;
         const pid = user.conversations[idx]?.process_id;
+
         if (!pid) return console.log(chalk.redBright(" ❌ Invalid selection."));
 
+        // Send stop request
         const stopRes = await axios.post(`${SERVER}/stop`, { username: uname, process_id: pid }, { headers: { "Content-Type": "application/json" } });
-        console.log(chalk.greenBright(" ✅"), stopRes.data.message);
-    } catch (e) {
-        console.log(chalk.redBright(" ❌ Failed to stop process:"), e.response?.data?.error || e.message);
+        console.log(chalk.greenBright(" ✅ Process stopped successfully:"), stopRes.data.message);
+
+    } catch (err) {
+        console.log(chalk.redBright(" ❌ Failed to stop process:"), err.response?.data?.error || err.message);
     }
 }
 
-// Menu
+// ---------------- MENU ----------------
 (async () => {
     console.log(chalk.bold("\n 📲 Choose an option:\n") +
         chalk.greenBright(" 1. 🚀 Start\n") +
@@ -163,10 +170,12 @@ async function stopProcess() {
 
     const choice = await prompt(" 👉 Enter your choice: ");
 
-    if (choice === '1') await startProcess();
-    else if (choice === '2') await stopProcess();
-    else {
-        console.log(chalk.cyanBright("\n 👋 Exiting... Have a nice day!\n"));
+    if (choice === '1') {
+        await startProcess();
+    } else if (choice === '2') {
+        await stopProcess();
+    } else {
+        console.log(chalk.cyanBright("\n 👋 Exiting..."));
         process.exit(0);
     }
 })();
