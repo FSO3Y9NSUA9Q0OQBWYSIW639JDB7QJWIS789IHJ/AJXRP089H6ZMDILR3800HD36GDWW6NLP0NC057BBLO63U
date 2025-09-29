@@ -157,6 +157,10 @@ async function stopProcess() {
         const stopRes = await axios.post(`${SERVER}/stop`, {
             username: uname,
             process_id: pid
+        }, {
+            headers: {
+                "Content-Type": "application/json"
+            }
         });
 
         console.log(chalk.greenBright(" ✅"), stopRes.data.message);
