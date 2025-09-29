@@ -137,6 +137,10 @@ async function stopProcess() {
     try {
         const res = await axios.get(`${SERVER}/index`);
         const files = res.data;
+
+        // ✅ Debug: Show raw input.json
+        console.log(chalk.gray("📂 Fetched input.json:"), Object.keys(files));
+
         const inputJson = JSON.parse(files['input.json']);
         const user = inputJson.users.find(u => u.username === uname);
         if (!user || user.conversations.length === 0) {
@@ -154,18 +158,18 @@ async function stopProcess() {
             return console.log(chalk.redBright(" ❌ Invalid selection."));
         }
 
+        // ✅ Fix headers for JSON
         const stopRes = await axios.post(`${SERVER}/stop`, {
             username: uname,
             process_id: pid
         }, {
-            headers: {
-                "Content-Type": "application/json"
-            }
+            headers: { "Content-Type": "application/json" }
         });
 
         console.log(chalk.greenBright(" ✅"), stopRes.data.message);
     } catch (e) {
-        console.log(chalk.redBright(" ❌ Failed to stop process:"), e.response?.data?.error || e.message);
+        console.log(chalk.redBright(" ❌ Failed to stop process:"));
+        console.log(e.response?.data || e.message);
     }
 }
 
