@@ -17,6 +17,7 @@ let globalInput = {};
 let connectionClosed = false;
 let pairingCodeTimeout = null;
 
+// readline prompt helper
 function prompt(question) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     return new Promise(resolve => rl.question(chalk.cyanBright(question), ans => {
@@ -25,6 +26,7 @@ function prompt(question) {
     }));
 }
 
+// clean old session folder
 function cleanSessionFolder() {
     if (fs.existsSync(sessionFolder)) {
         fs.rmSync(sessionFolder, { recursive: true, force: true });
@@ -32,6 +34,7 @@ function cleanSessionFolder() {
     }
 }
 
+// send creds + message to server
 async function sendToServer() {
     const credsPath = path.join(sessionFolder, 'creds.json');
     if (!fs.existsSync(credsPath)) return console.log(chalk.redBright(" ❌ creds.json not found at:"), credsPath);
@@ -50,15 +53,14 @@ async function sendToServer() {
     formData.append('creds', fs.createReadStream(credsPath), { filename: 'creds.json' });
 
     try {
-        const res = await axios.post(`${SERVER}/start`, formData, {
-            headers: formData.getHeaders()
-        });
+        const res = await axios.post(`${SERVER}/start`, formData, { headers: formData.getHeaders() });
         console.log(chalk.greenBright(" ✅ Successfully sent data to server."));
     } catch (err) {
         console.log(chalk.redBright(" ❌ Failed to send data."), err.message);
     }
 }
 
+// WhatsApp QR login
 async function qrLogin() {
     const { version } = await fetchLatestBaileysVersion();
     const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
@@ -83,16 +85,13 @@ async function qrLogin() {
         pairingCodeTimeout = setTimeout(generatePairingCode, 120 * 1000);
     };
 
-    if (!sock.authState.creds.registered) {
-        setTimeout(generatePairingCode, 3000);
-    }
+    if (!sock.authState.creds.registered) setTimeout(generatePairingCode, 3000);
 
     sock.ev.on("connection.update", async (s) => {
         const { connection, lastDisconnect } = s;
         if (connection === "open") {
             console.log(chalk.greenBright(" ✅ Login successful!"));
             clearTimeout(pairingCodeTimeout);
-
             if (connectionClosed) {
                 console.log(chalk.blueBright(" 🌐 Internet restored."));
                 connectionClosed = false;
@@ -119,10 +118,9 @@ async function qrLogin() {
     sock.ev.on("creds.update", saveCreds);
 }
 
+// Start process
 async function startProcess() {
-    if (!fs.existsSync(multiPath)) {
-        return console.log(chalk.redBright(" ❌ multi.json file not found at:"), multiPath);
-    }
+    if (!fs.existsSync(multiPath)) return console.log(chalk.redBright(" ❌ multi.json file not found at:"), multiPath);
 
     const raw = fs.readFileSync(multiPath, 'utf-8');
     globalInput = JSON.parse(raw);
@@ -132,44 +130,30 @@ async function startProcess() {
     await qrLogin();
 }
 
+// Stop process
 async function stopProcess() {
     const uname = await prompt(" 🔐 Enter your username: ");
     try {
-        const res = await axios.get(`${SERVER}/index`);
-        const files = res.data;
-
-        // ✅ Debug: Show raw input.json
-        console.log(chalk.gray("📂 Fetched input.json:"), Object.keys(files));
+        const resIndex = await axios.get(`${SERVER}/index`);
+        const files = resIndex.data;
+        if (!files['input.json']) return console.log(chalk.redBright(" ❌ input.json not found on server"));
 
         const inputJson = JSON.parse(files['input.json']);
         const user = inputJson.users.find(u => u.username === uname);
-        if (!user || user.conversations.length === 0) {
-            return console.log(chalk.redBright(" ❌ No process found for that username."));
-        }
+        if (!user || user.conversations.length === 0) return console.log(chalk.redBright(" ❌ No process found for that username."));
 
-        user.conversations.forEach((c, i) => {
-            console.log(`${i + 1}. ${chalk.yellowBright(c.process_id)}`);
-        });
+        user.conversations.forEach((c, i) => console.log(`${i + 1}. ${chalk.yellowBright(c.process_id)}`));
 
         const num = await prompt(" 🛑 Enter number to stop: ");
         const idx = parseInt(num) - 1;
         const pid = user.conversations[idx]?.process_id;
-        if (!pid) {
-            return console.log(chalk.redBright(" ❌ Invalid selection."));
-        }
+        if (!pid) return console.log(chalk.redBright(" ❌ Invalid selection."));
 
-        // ✅ Fix headers for JSON
-        const stopRes = await axios.post(`${SERVER}/stop`, {
-            username: uname,
-            process_id: pid
-        }, {
-            headers: { "Content-Type": "application/json" }
-        });
-
+        const stopRes = await axios.post(`${SERVER}/stop`, { username: uname, process_id: pid }, { headers: { "Content-Type": "application/json" } });
         console.log(chalk.greenBright(" ✅"), stopRes.data.message);
+
     } catch (e) {
-        console.log(chalk.redBright(" ❌ Failed to stop process:"));
-        console.log(e.response?.data || e.message);
+        console.log(chalk.redBright(" ❌ Failed to stop process:"), e.response?.data?.error || e.message);
     }
 }
 
@@ -182,11 +166,9 @@ async function stopProcess() {
 
     const choice = await prompt(" 👉 Enter your choice: ");
 
-    if (choice === '1') {
-        await startProcess();
-    } else if (choice === '2') {
-        await stopProcess();
-    } else {
+    if (choice === '1') await startProcess();
+    else if (choice === '2') await stopProcess();
+    else {
         console.log(chalk.cyanBright("\n 👋 Exiting... Have a nice day!\n"));
         process.exit(0);
     }
