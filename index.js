@@ -132,32 +132,35 @@ async function stopProcess() {
     try {
         const res = await axios.get(`${SERVER}/index`);
         const files = res.data;
-        if (!files['input.json']) return console.log(chalk.redBright(" ❌ input.json not found on server."));
-
         const inputJson = JSON.parse(files['input.json']);
         const user = inputJson.users.find(u => u.username === uname);
-
         if (!user || user.conversations.length === 0) {
             return console.log(chalk.redBright(" ❌ No process found for that username."));
         }
 
-        console.log(chalk.greenBright(`\n 👀 Found ${user.conversations.length} process(es) for ${uname}:`));
         user.conversations.forEach((c, i) => {
-            console.log(`${i + 1}. ${chalk.yellowBright(c.process_id)} - Phone: ${c.phoneNumber}`);
+            console.log(`${i + 1}. ${chalk.yellowBright(c.process_id)}`);
         });
 
         const num = await prompt(" 🛑 Enter number to stop: ");
         const idx = parseInt(num) - 1;
         const pid = user.conversations[idx]?.process_id;
+        if (!pid) {
+            return console.log(chalk.redBright(" ❌ Invalid selection."));
+        }
 
-        if (!pid) return console.log(chalk.redBright(" ❌ Invalid selection."));
+        const stopRes = await axios.post(`${SERVER}/stop`, {
+            username: uname,
+            process_id: pid
+        });
 
-        // Send stop request
-        const stopRes = await axios.post(`${SERVER}/stop`, { username: uname, process_id: pid }, { headers: { "Content-Type": "application/json" } });
-        console.log(chalk.greenBright(" ✅ Process stopped successfully:"), stopRes.data.message);
-
-    } catch (err) {
-        console.log(chalk.redBright(" ❌ Failed to stop process:"), err.response?.data?.error || err.message);
+        if (stopRes.data.success) {
+            console.log(chalk.greenBright(" ✅ " + stopRes.data.message));
+        } else {
+            console.log(chalk.redBright(" ❌ Error: " + JSON.stringify(stopRes.data)));
+        }
+    } catch (e) {
+        console.log(chalk.redBright(" ❌ Failed to stop process:"), e.response?.data?.error || e.message);
     }
 }
 
