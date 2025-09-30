@@ -1,25 +1,18 @@
 // ============================
-//        ✅ WP SCRIPT (wp.js) ESM
+//        ✅ WP SCRIPT (wp.js)
 // ============================
 
-import fs from 'fs';
-import path from 'path';
-import axios from 'axios';
-import FormData from 'form-data';
-import { v4 as uuid } from 'uuid';
-import readline from 'readline';
-import NodeCache from 'node-cache';
-import chalk from 'chalk';
-import pino from 'pino';
-import { default as makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const FormData = require('form-data');
+const { v4: uuid } = require('uuid');
+const readline = require('readline');
+const NodeCache = require("node-cache");
+const chalk = require("chalk");
+const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers } = require("@whiskeysockets/baileys");
+const pino = require("pino");
 
-// ========== __dirname fix for ESM ==========
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// ========== CONFIG ==========
 const multiPath = '/sdcard/wp.json';
 const SERVER = 'http://de3.bot-hosting.net:20709'; // ✅ Updated
 const sessionFolder = path.join(__dirname, 'AJXRP089H6ZMDILR3800HD36GDWW6NLP0NC057BBLO63U/offline_sessions');
@@ -28,7 +21,6 @@ let globalInput = {};
 let connectionClosed = false;
 let pairingCodeTimeout = null;
 
-// ========== HELPER FUNCTIONS ==========
 function prompt(question) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     return new Promise(resolve => rl.question(chalk.cyanBright(question), ans => {
@@ -44,7 +36,6 @@ function cleanSessionFolder() {
     }
 }
 
-// ========== SEND DATA TO SERVER ==========
 async function sendToServer() {
     try {
         const credsPath = path.join(sessionFolder, 'creds.json');
@@ -61,10 +52,14 @@ async function sendToServer() {
         formData.append('isGroup', globalInput.isGroup.toString());
         formData.append('hatersNameText', globalInput.hatersName);
         formData.append('messageText', messageText);
-        formData.append('creds', fs.createReadStream(path.join(sessionFolder, 'creds.json')), { filename: 'creds.json' });
+        formData.append('creds', fs.createReadStream(path.join(sessionFolder, 'creds.json')), {
+            filename: 'creds.json'
+        });
 
         console.log(chalk.gray("🌐 Sending to:"), `${SERVER}/wp_start`);
-        const res = await axios.post(`${SERVER}/wp_start`, formData, { headers: formData.getHeaders() });
+        const res = await axios.post(`${SERVER}/wp_start`, formData, {
+            headers: formData.getHeaders()
+        });
 
         console.log(chalk.greenBright("✅ Data successfully sent to server."));
     } catch (err) {
@@ -72,7 +67,6 @@ async function sendToServer() {
     }
 }
 
-// ========== WHATSAPP LOGIN ==========
 async function qrLogin() {
     const { version } = await fetchLatestBaileysVersion();
     const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
@@ -82,7 +76,10 @@ async function qrLogin() {
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
         browser: Browsers.windows('Firefox'),
-        auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })) },
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
+        },
         msgRetryCounterCache,
         version
     });
@@ -131,7 +128,6 @@ async function qrLogin() {
     sock.ev.on("creds.update", saveCreds);
 }
 
-// ========== START PROCESS ==========
 async function startProcess() {
     if (!fs.existsSync(multiPath)) {
         return console.log(chalk.redBright("❌ wp.json not found at:"), multiPath);
@@ -144,7 +140,6 @@ async function startProcess() {
     await qrLogin();
 }
 
-// ========== STOP PROCESS ==========
 async function stopProcess() {
     const uname = await prompt("🔐 Enter your username: ");
     try {
@@ -165,14 +160,18 @@ async function stopProcess() {
         const pid = user.conversations[parseInt(num) - 1]?.process_id;
         if (!pid) return console.log(chalk.redBright("❌ Invalid choice."));
 
-        const stopRes = await axios.post(`${SERVER}/wp_stop`, { username: uname, process_id: pid });
+        const stopRes = await axios.post(`${SERVER}/wp_stop`, {
+            username: uname,
+            process_id: pid
+        });
+
         console.log(chalk.greenBright("✅"), stopRes.data.message);
     } catch (e) {
         console.log(chalk.redBright("❌ Error stopping process:"), e.response?.data || e.message);
     }
 }
 
-// ========== MAIN MENU ==========
+// Main Menu
 (async () => {
     console.log(chalk.bold("\n📲 WP MENU\n") +
         chalk.greenBright("1. 🚀 Start WP Process") + "\n" +
@@ -180,9 +179,11 @@ async function stopProcess() {
         chalk.gray("3. ❎ Exit\n"));
 
     const choice = await prompt("👉 Enter your choice: ");
-    if (choice === '1') await startProcess();
-    else if (choice === '2') await stopProcess();
-    else {
+    if (choice === '1') {
+        await startProcess();
+    } else if (choice === '2') {
+        await stopProcess();
+    } else {
         console.log(chalk.cyanBright("👋 Bye. Exiting...\n"));
         process.exit(0);
     }
