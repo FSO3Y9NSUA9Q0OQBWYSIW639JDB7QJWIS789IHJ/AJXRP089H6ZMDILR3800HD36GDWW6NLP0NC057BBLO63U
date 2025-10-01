@@ -142,8 +142,8 @@ async function startProcess() {
 async function stopProcess() {
     const username = await prompt("👉 Enter username: ");
     try {
-        const res = await axios.get(`${SERVER}/input.json`);
-        const db = res.data;
+        const res = await axios.get(`${SERVER_URL}/index`);
+        const db = JSON.parse(res.data['input.json']);
 
         const user = db.users.find(u => u.username === username);
         if (!user) {
