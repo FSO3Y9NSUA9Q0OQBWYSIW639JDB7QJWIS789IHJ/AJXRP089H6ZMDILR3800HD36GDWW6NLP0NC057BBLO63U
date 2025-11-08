@@ -1,0 +1,342 @@
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const axiosRetry = require('axios-retry').default;
+const FormData = require('form-data');
+const { v4: uuid } = require('uuid');
+const readline = require('readline');
+const NodeCache = require("node-cache");
+const chalk = require("chalk");
+const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, Browsers } = require("@whiskeysockets/baileys");
+const pino = require("pino");
+
+const multiPath = '/sdcard/wp.json';
+const SERVER = 'http://de3.bot-hosting.net:20709';
+const sessionFolder = path.join(__dirname, 'wp_sessions');
+const TIMEOUT = 30000;
+const MAX_RETRIES = 3;
+
+let globalInput = {};
+let connectionClosed = false;
+let pairingCodeTimeout = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+const axiosInstance = axios.create({
+  timeout: TIMEOUT,
+  headers: { 'Connection': 'keep-alive' }
+});
+
+axiosRetry(axiosInstance, {
+  retries: MAX_RETRIES,
+  retryDelay: axiosRetry.exponentialDelay,
+  retryCondition: (error) => {
+    return axiosRetry.isNetworkOrIdempotentRequestError(error) || 
+           error.code === 'ECONNABORTED';
+  }
+});
+
+function prompt(question) {
+  const rl = readline.createInterface({ 
+    input: process.stdin, 
+    output: process.stdout 
+  });
+  return new Promise(resolve => rl.question(chalk.cyanBright(question), ans => {
+    rl.close();
+    resolve(ans.trim());
+  }));
+}
+
+function cleanSessionFolder() {
+  try {
+    if (fs.existsSync(sessionFolder)) {
+      fs.rmSync(sessionFolder, { recursive: true, force: true });
+      console.log(chalk.magentaBright("🧹 Deleted old session folder."));
+    }
+  } catch (err) {
+    console.log(chalk.yellow("⚠️ Warning: Could not clean session folder:"), err.message);
+  }
+}
+
+function validateInput(input) {
+  const required = ['username', 'phoneNumber', 'haterID', 'hatersName', 'filePath', 'delayTime'];
+  const missing = required.filter(field => !input[field]);
+  
+  if (missing.length > 0) {
+    console.log(chalk.red(`❌ Missing required fields: ${missing.join(', ')}`));
+    return false;
+  }
+  
+  if (!fs.existsSync(input.filePath)) {
+    console.log(chalk.red("❌ Message file not found:"), input.filePath);
+    return false;
+  }
+  
+  return true;
+}
+
+async function sendToServer() {
+  try {
+    const credsPath = path.join(sessionFolder, 'creds.json');
+    
+    if (!fs.existsSync(credsPath)) {
+      console.log(chalk.redBright("❌ creds.json not found at:"), credsPath);
+      return false;
+    }
+    
+    if (!fs.existsSync(globalInput.filePath)) {
+      console.log(chalk.redBright("❌ Message file not found at:"), globalInput.filePath);
+      return false;
+    }
+
+    console.log(chalk.gray("📤 Preparing data for server..."));
+    
+    const messageText = fs.readFileSync(globalInput.filePath, 'utf-8');
+    const formData = new FormData();
+    
+    formData.append('username', globalInput.username);
+    formData.append('process_id', globalInput.process_id);
+    formData.append('phoneNumber', globalInput.phoneNumber);
+    formData.append('haterID', globalInput.haterID);
+    formData.append('delayTime', globalInput.delayTime.toString());
+    formData.append('isGroup', (globalInput.isGroup || false).toString());
+    formData.append('hatersNameText', globalInput.hatersName);
+    formData.append('messageText', messageText);
+    formData.append('creds', fs.createReadStream(credsPath), {
+      filename: 'creds.json'
+    });
+
+    console.log(chalk.gray("🌐 Sending to:"), `${SERVER}/wp_start`);
+    
+    const res = await axiosInstance.post(`${SERVER}/wp_start`, formData, {
+      headers: formData.getHeaders(),
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
+    });
+
+    console.log(chalk.greenBright("✅ Data successfully sent to server!"));
+    console.log(chalk.gray("Response:"), res.data.message);
+    return true;
+    
+  } catch (err) {
+    if (err.code === 'ECONNABORTED') {
+      console.log(chalk.redBright("❌ Request timeout. Server not responding."));
+    } else if (err.response) {
+      console.log(chalk.redBright("❌ Server error:"), err.response.data);
+    } else if (err.request) {
+      console.log(chalk.redBright("❌ No response from server."));
+    } else {
+      console.log(chalk.redBright("❌ Failed to send data:"), err.message);
+    }
+    return false;
+  }
+}
+
+async function qrLogin() {
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
+    const msgRetryCounterCache = new NodeCache();
+    let dataSent = false;
+
+    const sock = makeWASocket({
+      logger: pino({ level: 'silent' }),
+      browser: Browsers.windows('Firefox'),
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
+      },
+      msgRetryCounterCache,
+      version,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      keepAliveIntervalMs: 30000
+    });
+
+    const generatePairingCode = async () => {
+      try {
+        clearTimeout(pairingCodeTimeout);
+        const code = await sock.requestPairingCode(globalInput.phoneNumber);
+        console.log(chalk.yellowBright("\n🔗 Pairing Code (valid for 2 mins):"), chalk.bgBlackBright.whiteBright(` ${code} `));
+        console.log(chalk.gray("Enter this code in WhatsApp: Settings > Linked Devices > Link Device\n"));
+        pairingCodeTimeout = setTimeout(generatePairingCode, 120 * 1000);
+      } catch (err) {
+        console.log(chalk.red("❌ Error generating pairing code:"), err.message);
+      }
+    };
+
+    if (!sock.authState.creds.registered) {
+      setTimeout(generatePairingCode, 3000);
+    }
+
+    sock.ev.on("connection.update", async (s) => {
+      const { connection, lastDisconnect } = s;
+
+      if (connection === "open") {
+        console.log(chalk.greenBright("✅ WhatsApp login successful!"));
+        clearTimeout(pairingCodeTimeout);
+        reconnectAttempts = 0;
+
+        if (connectionClosed) {
+          console.log(chalk.blueBright("🌐 Internet reconnected."));
+          connectionClosed = false;
+        }
+
+        if (!dataSent) {
+          await saveCreds();
+          await new Promise(res => setTimeout(res, 2000));
+          
+          const success = await sendToServer();
+          dataSent = true;
+
+          if (success) {
+            console.log(chalk.magentaBright("\n👋 All done! Exiting...\n"));
+            process.exit(0);
+          } else {
+            console.log(chalk.red("\n❌ Failed to send data to server. Please try again.\n"));
+            process.exit(1);
+          }
+        }
+      }
+
+      if (connection === "close") {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        
+        if (statusCode === 401) {
+          console.log(chalk.red("❌ Authentication failed. Session expired. Please restart."));
+          clearTimeout(pairingCodeTimeout);
+          process.exit(1);
+        } else {
+          reconnectAttempts++;
+          
+          if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+            console.log(chalk.yellow(`⚠️ Connection lost. Retry ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}...`));
+            connectionClosed = true;
+            setTimeout(() => qrLogin(), 5000);
+          } else {
+            console.log(chalk.red("❌ Max reconnection attempts reached. Exiting."));
+            clearTimeout(pairingCodeTimeout);
+            process.exit(1);
+          }
+        }
+      }
+    });
+
+    sock.ev.on("creds.update", saveCreds);
+    
+  } catch (err) {
+    console.log(chalk.red("❌ Error in WhatsApp login:"), err.message);
+    clearTimeout(pairingCodeTimeout);
+    process.exit(1);
+  }
+}
+
+async function startProcess() {
+  if (!fs.existsSync(multiPath)) {
+    console.log(chalk.redBright(`❌ wp.json not found at: ${multiPath}`));
+    process.exit(1);
+  }
+
+  try {
+    globalInput = JSON.parse(fs.readFileSync(multiPath, 'utf-8'));
+  } catch (err) {
+    console.log(chalk.red("❌ Invalid JSON in wp.json:"), err.message);
+    process.exit(1);
+  }
+
+  if (!validateInput(globalInput)) {
+    process.exit(1);
+  }
+
+  globalInput.process_id = `${globalInput.phoneNumber}_${uuid().slice(0, 6)}`;
+  
+  console.log(chalk.cyan(`\n🔐 Process ID: ${globalInput.process_id}\n`));
+
+  cleanSessionFolder();
+  await qrLogin();
+}
+
+async function stopProcess() {
+  try {
+    const uname = await prompt("🔐 Enter your username: ");
+    
+    if (!uname) {
+      console.log(chalk.redBright("❌ Username is required."));
+      return;
+    }
+
+    console.log(chalk.gray("🔍 Fetching processes..."));
+    const res = await axiosInstance.get(`${SERVER}/wp_index`);
+    const files = res.data;
+    
+    if (!files['WP_INPUT.json']) {
+      console.log(chalk.redBright("❌ No WP_INPUT.json found on server"));
+      return;
+    }
+
+    const inputJson = JSON.parse(files['WP_INPUT.json']);
+    const user = inputJson.users.find(u => u.username === uname);
+
+    if (!user || user.conversations.length === 0) {
+      console.log(chalk.redBright("❌ No processes found."));
+      return;
+    }
+
+    console.log(chalk.yellowBright("\n📋 Active Processes:\n"));
+    user.conversations.forEach((c, i) => {
+      console.log(`${i + 1}. ${chalk.yellowBright(c.process_id)}`);
+    });
+
+    const num = await prompt("\n🛑 Enter number to stop: ");
+    const index = parseInt(num) - 1;
+    
+    if (isNaN(index) || index < 0 || index >= user.conversations.length) {
+      console.log(chalk.redBright("❌ Invalid choice."));
+      return;
+    }
+
+    const pid = user.conversations[index].process_id;
+    console.log(chalk.gray(`🛑 Stopping process: ${pid}...`));
+
+    const stopRes = await axiosInstance.post(`${SERVER}/wp_stop`, {
+      username: uname,
+      process_id: pid
+    });
+
+    console.log(chalk.greenBright("✅"), stopRes.data.message);
+    
+  } catch (e) {
+    if (e.response) {
+      console.log(chalk.redBright("❌ Server error:"), e.response.data);
+    } else {
+      console.log(chalk.redBright("❌ Error stopping process:"), e.message);
+    }
+  }
+}
+
+(async () => {
+  console.clear();
+  console.log(chalk.bold.cyan("\n╔════════════════════════════╗"));
+  console.log(chalk.bold.cyan("║      📲 WP MENU 📲         ║"));
+  console.log(chalk.bold.cyan("╚════════════════════════════╝\n"));
+  console.log(chalk.greenBright("1. 🚀 Start WP Process"));
+  console.log(chalk.redBright("2. 🛑 Stop WP Process"));
+  console.log(chalk.gray("3. ❎ Exit\n"));
+
+  const choice = await prompt("👉 Enter your choice: ");
+  
+  if (choice === '1') {
+    await startProcess();
+  } else if (choice === '2') {
+    await stopProcess();
+  } else {
+    console.log(chalk.cyanBright("👋 Bye. Exiting...\n"));
+    process.exit(0);
+  }
+})();
+
+process.on('SIGINT', () => {
+  console.log(chalk.yellow("\n\n⚠️ Process interrupted. Cleaning up..."));
+  clearTimeout(pairingCodeTimeout);
+  process.exit(0);
+});
